@@ -102,7 +102,7 @@ def embed_image(image_path: Path) -> np.ndarray:
 
 # --- VLM Judge (Gemini 1.5 Pro via OpenRouter) ---
 
-VLM_MODEL = "google/gemini-pro-1.5"
+VLM_MODEL = "google/gemini-3-pro-preview"
 VLM_MAX_TOKENS = 60
 VLM_TIMEOUT = 45  # seconds (OpenRouter can be slower)
 VLM_API_URL = "https://openrouter.ai/api/v1/chat/completions"
