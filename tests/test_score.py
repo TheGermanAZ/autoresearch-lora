@@ -148,3 +148,39 @@ def test_cosine_similarity_zero_norm():
     a = np.array([1.0, 0.0])
     b = np.array([0.0, 0.0])
     assert cosine_similarity(a, b) == 0.0
+
+
+def test_vlm_judge_no_api_key():
+    """Without API key, vlm_judge returns zeros."""
+    import os
+    from pathlib import Path
+
+    from score import vlm_judge
+
+    # Ensure no key in env
+    old = os.environ.pop("ANTHROPIC_API_KEY", None)
+    try:
+        result = vlm_judge(Path("/nonexistent.png"), "test prompt", api_key=None)
+        assert result["vlm_avg"] == 0.0
+        assert result["prompt_adherence"] == 0.0
+        assert result["technical"] == 0.0
+        assert result["aesthetic"] == 0.0
+    finally:
+        if old:
+            os.environ["ANTHROPIC_API_KEY"] = old
+
+
+def test_vlm_judge_batch_no_api_key():
+    """Without API key, vlm_judge_batch returns zeros."""
+    import os
+    from pathlib import Path
+
+    from score import vlm_judge_batch
+
+    old = os.environ.pop("ANTHROPIC_API_KEY", None)
+    try:
+        result = vlm_judge_batch([(Path("/fake.png"), "test")], api_key=None)
+        assert result["vlm_avg"] == 0.0
+    finally:
+        if old:
+            os.environ["ANTHROPIC_API_KEY"] = old

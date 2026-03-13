@@ -135,11 +135,14 @@ def train_lora(config: dict, mflux_json_path: Path) -> tuple[float, Path, int]:
 
 def generate_and_score(config: dict, adapter_path: Path) -> tuple[dict, float]:
     """Generate eval images, score them, return (scores_dict, eval_seconds)."""
+    import os
+
     from score import (
         aggregate_scores,
         embed_image,
         score_against_centroid,
         score_nearest_neighbor,
+        vlm_judge_batch,
     )
 
     prompts = (PROJECT_DIR / "eval_prompts.txt").read_text().strip().split("\n")
@@ -211,6 +214,21 @@ def generate_and_score(config: dict, adapter_path: Path) -> tuple[dict, float]:
         per_prompt_centroid, per_prompt_nn, neg_sims,
         num_prompts=NUM_TRIGGER_PROMPTS,
     )
+
+    # VLM judge: score 1 image per trigger prompt (optional, needs ANTHROPIC_API_KEY)
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if api_key:
+        print("VLM judging...", flush=True)
+        # Pick seed=42 image for each trigger prompt
+        vlm_pairs = []
+        for pi, seed, img_path in image_paths:
+            if pi < NUM_TRIGGER_PROMPTS and seed == EVAL_SEEDS[0]:
+                vlm_pairs.append((img_path, prompts[pi]))
+        vlm_scores = vlm_judge_batch(vlm_pairs, api_key)
+        scores.update(vlm_scores)
+    else:
+        scores["vlm_avg"] = 0.0
+
     return scores, eval_seconds
 
 
@@ -239,6 +257,8 @@ def run_experiment(config: dict, tag: str = "") -> dict:
     peak_bytes = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     peak_mb = peak_bytes / (1024 * 1024)
 
+    vlm_avg = scores.get("vlm_avg", 0.0)
+
     result = {
         "tag": tag,
         "status": "ok",
@@ -247,6 +267,7 @@ def run_experiment(config: dict, tag: str = "") -> dict:
         "prompt_scores": scores["prompt_scores"],
         "score_stddev": scores["score_stddev"],
         "neg_control": scores["neg_control"],
+        "vlm_avg": vlm_avg,
         "peak_vram_mb": peak_mb,
         "training_seconds": training_seconds,
         "iterations_completed": iterations,
@@ -262,6 +283,11 @@ def run_experiment(config: dict, tag: str = "") -> dict:
     print(f"prompt_scores:      {prompt_scores_str}")
     print(f"score_stddev:       {scores['score_stddev']:.6f}")
     print(f"neg_control:        {scores['neg_control']:.6f}")
+    print(f"vlm_avg:            {vlm_avg:.6f}")
+    if "vlm_adherence" in scores:
+        print(f"vlm_adherence:      {scores['vlm_adherence']:.6f}")
+        print(f"vlm_technical:      {scores['vlm_technical']:.6f}")
+        print(f"vlm_aesthetic:      {scores['vlm_aesthetic']:.6f}")
     print(f"peak_vram_mb:       {peak_mb:.1f}")
     print(f"training_seconds:   {training_seconds:.1f}")
     print(f"steps_completed:    {iterations}")
@@ -378,9 +404,11 @@ def run_batch(screen_mode: bool = False):
             print(f"  [{tag}] CRASH: {r.get('error', 'unknown')[:80]}")
             continue
         marker = " <-- BEST" if i == 0 else ""
+        vlm_part = f"  vlm={r['vlm_avg']:.3f}" if r.get("vlm_avg", 0) > 0 else ""
         print(
             f"  [{tag}] clip_centroid={r['clip_sim_centroid']:.3f}"
             f"  clip_nn={r['clip_sim_nn']:.3f}"
+            f"{vlm_part}"
             f"  neg={r['neg_control']:.3f}"
             f"  train={r['training_seconds']:.0f}s{marker}"
         )

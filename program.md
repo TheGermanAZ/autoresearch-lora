@@ -187,6 +187,29 @@ For quick one-off tests, you can still use single mode:
 7. GOTO 1
 ```
 
+## Scoring
+
+### Primary metric: `clip_sim_centroid`
+CLIP image-image cosine similarity between generated eval images and the reference centroid. Higher = more similar to reference style. This drives keep/discard decisions.
+
+### Secondary metrics
+- `clip_sim_nn` — nearest-neighbor CLIP similarity (max sim to any single reference)
+- `score_stddev` — consistency across eval images
+- `neg_control` — CLIP sim for images without trigger (overfitting detector, should stay low)
+
+### VLM Judge (optional)
+If `ANTHROPIC_API_KEY` is set, Claude vision scores 1 image per trigger prompt on:
+- **Prompt adherence** — does the image match the generation prompt?
+- **Technical quality** — free of artifacts, distortions, incoherent elements?
+- **Aesthetic appeal** — visually appealing and cohesive?
+
+Each dimension is 0.0-1.0, averaged into `vlm_avg`. Cost: ~$0.005/image with Haiku.
+
+VLM scores are secondary signals for your reasoning — they don't drive keep/discard.
+Use them to understand *why* a config is better or worse (e.g., high CLIP but low technical quality suggests artifacts).
+
+To enable: `export ANTHROPIC_API_KEY=sk-ant-...` before running.
+
 ## Expected Output Format
 
 ```
@@ -196,6 +219,10 @@ clip_sim_nn:        0.812000
 prompt_scores:      0.85, 0.83, 0.87, 0.86, 0.84
 score_stddev:       0.018000
 neg_control:        0.312000
+vlm_avg:            0.733000
+vlm_adherence:      0.780000
+vlm_technical:      0.720000
+vlm_aesthetic:      0.700000
 peak_vram_mb:       16400.0
 training_seconds:   300.0
 steps_completed:    9
@@ -203,13 +230,15 @@ eval_seconds:       112.4
 ---
 ```
 
+VLM lines only appear if `ANTHROPIC_API_KEY` is set. If not, `vlm_avg: 0.000000`.
+
 ## results.tsv Schema
 
 ```
-commit	clip_centroid	clip_nn	stddev	neg_ctrl	memory_gb	status	description
-a1b2c3d	0.847	0.812	0.018	0.312	16.0	keep	baseline (default config)
-e4f5g6h	0.862	0.831	0.015	0.305	16.0	keep	rank 8 → 16
-i7j8k9l	0.859	0.828	0.022	0.318	14.2	discard	quantize 8 → 4 (within noise)
+commit	clip_centroid	clip_nn	stddev	neg_ctrl	vlm	memory_gb	status	description
+a1b2c3d	0.847	0.812	0.018	0.312	0.733	16.0	keep	baseline (default config)
+e4f5g6h	0.862	0.831	0.015	0.305	0.756	16.0	keep	rank 8 → 16
+i7j8k9l	0.859	0.828	0.022	0.318	0.710	14.2	discard	quantize 8 → 4 (within noise)
 ```
 
 ## Crash Recovery

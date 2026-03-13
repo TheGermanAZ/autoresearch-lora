@@ -1,9 +1,15 @@
-"""CLIP scoring module for autoresearch-lora.
+"""Scoring module for autoresearch-lora.
 
-Provides cosine similarity, centroid scoring, nearest-neighbor scoring,
-score aggregation, and CLIP image embedding via mlx_clip.
+Provides CLIP image-image similarity (cosine, centroid, nearest-neighbor),
+score aggregation, CLIP image embedding via mlx_clip, and optional VLM
+judge scoring via Claude vision API.
 """
 
+import base64
+import json
+import os
+import re
+import urllib.request
 from pathlib import Path
 
 import numpy as np
@@ -92,3 +98,122 @@ def embed_image(image_path: Path) -> np.ndarray:
     clip = load_clip()
     embedding_list = clip.image_encoder(str(image_path))
     return np.array(embedding_list, dtype=np.float32)
+
+
+# --- VLM Judge (Claude Vision API) ---
+
+VLM_MODEL = "claude-haiku-4-5-20251001"
+VLM_MAX_TOKENS = 60
+VLM_TIMEOUT = 30  # seconds
+
+VLM_RUBRIC = """\
+Rate this AI-generated image on a scale of 1-10 for each criterion:
+
+1. **Prompt adherence**: How well does the image match the generation prompt?
+2. **Technical quality**: Is the image free of artifacts, distortions, or incoherent elements?
+3. **Aesthetic appeal**: Is the image visually appealing and cohesive?
+
+The generation prompt was: "{prompt}"
+
+Respond with ONLY three numbers separated by commas, nothing else. Example: 7,8,6"""
+
+
+def vlm_judge(image_path: Path, prompt: str, api_key: str | None = None) -> dict:
+    """Score a single image using Claude vision API.
+
+    Returns dict with prompt_adherence, technical, aesthetic (each 0.0-1.0)
+    and vlm_avg (arithmetic mean). Returns all zeros on failure or missing key.
+    """
+    zero = {"prompt_adherence": 0.0, "technical": 0.0, "aesthetic": 0.0, "vlm_avg": 0.0}
+
+    if not api_key:
+        api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        return zero
+
+    # Read and base64-encode the image
+    image_data = Path(image_path).read_bytes()
+    b64 = base64.standard_b64encode(image_data).decode("ascii")
+    suffix = Path(image_path).suffix.lower()
+    media_type = "image/png" if suffix == ".png" else "image/jpeg"
+
+    rubric_text = VLM_RUBRIC.replace("{prompt}", prompt)
+
+    body = json.dumps({
+        "model": VLM_MODEL,
+        "max_tokens": VLM_MAX_TOKENS,
+        "messages": [{
+            "role": "user",
+            "content": [
+                {
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": media_type, "data": b64},
+                },
+                {"type": "text", "text": rubric_text},
+            ],
+        }],
+    }).encode()
+
+    req = urllib.request.Request(
+        "https://api.anthropic.com/v1/messages",
+        data=body,
+        headers={
+            "Content-Type": "application/json",
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=VLM_TIMEOUT) as resp:
+            result = json.loads(resp.read())
+        text = result["content"][0]["text"].strip()
+        nums = re.findall(r"(\d+)", text)
+        if len(nums) >= 3:
+            adherence = min(float(nums[0]) / 10.0, 1.0)
+            technical = min(float(nums[1]) / 10.0, 1.0)
+            aesthetic = min(float(nums[2]) / 10.0, 1.0)
+            vlm_avg = (adherence + technical + aesthetic) / 3.0
+            return {
+                "prompt_adherence": adherence,
+                "technical": technical,
+                "aesthetic": aesthetic,
+                "vlm_avg": vlm_avg,
+            }
+    except Exception as e:
+        print(f"  VLM error for {Path(image_path).name}: {e}")
+
+    return zero
+
+
+def vlm_judge_batch(
+    image_prompt_pairs: list[tuple[Path, str]],
+    api_key: str | None = None,
+) -> dict:
+    """Score multiple images and return aggregated VLM scores.
+
+    Args:
+        image_prompt_pairs: [(image_path, prompt_text), ...]
+
+    Returns dict with mean scores across all images.
+    """
+    if not api_key:
+        api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        return {"vlm_avg": 0.0, "vlm_adherence": 0.0, "vlm_technical": 0.0, "vlm_aesthetic": 0.0}
+
+    all_scores = []
+    for img_path, prompt in image_prompt_pairs:
+        s = vlm_judge(img_path, prompt, api_key)
+        if s["vlm_avg"] > 0:
+            all_scores.append(s)
+
+    if not all_scores:
+        return {"vlm_avg": 0.0, "vlm_adherence": 0.0, "vlm_technical": 0.0, "vlm_aesthetic": 0.0}
+
+    return {
+        "vlm_avg": float(np.mean([s["vlm_avg"] for s in all_scores])),
+        "vlm_adherence": float(np.mean([s["prompt_adherence"] for s in all_scores])),
+        "vlm_technical": float(np.mean([s["technical"] for s in all_scores])),
+        "vlm_aesthetic": float(np.mean([s["aesthetic"] for s in all_scores])),
+    }
