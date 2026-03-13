@@ -64,7 +64,7 @@ Place 5-20 reference images (512px+ resolution, .jpg/.png/.webp) in a directory 
 ### Run an Experiment
 
 ```bash
-timeout 720 uv run train.py > run.log 2>&1
+uv run train.py > run.log 2>&1
 ```
 
 ### Run the Autonomous Loop

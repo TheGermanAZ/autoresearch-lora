@@ -74,7 +74,7 @@ autoresearch-lora/
 | Constant | Value | Rationale |
 |----------|-------|-----------|
 | TIME_BUDGET | 300s (5 min) | Matches original autoresearch. Smoke test calibrates whether this gives enough steps. Bump to 10-15 min only if scores are too noisy. |
-| TOTAL_TIMEOUT | 600s (10 min) | Training + eval + scoring. Hard cap via `timeout 720`. If TIME_BUDGET is increased, adjust hard cap to TIME_BUDGET + 420s. |
+| TOTAL_TIMEOUT | 600s (10 min) | Training + eval + scoring. Enforced by per-subprocess Python timeouts in train.py. |
 | EVAL_RESOLUTION | 1024×1024 | Klein 4B's native training resolution. 512 produces degraded output. |
 | EVAL_SEEDS | [42, 137, 256, 999] | Fixed seeds for deterministic comparison across experiments. |
 | EVAL_STEPS | 20 (default) | Inference steps per image. Smoke test calibrates timing — if 24 images × T seconds exceeds 5 min, reduce to 12 or 8. |
@@ -111,7 +111,7 @@ The exact output path and `--lora-paths` flag must be confirmed during pre-imple
 
 ### Training Steps vs Time Budget
 
-Unlike the original autoresearch-mlx which enforces a wall-clock TIME_BUDGET inside the training loop, mflux-train has no wall-clock cutoff — it trains for exactly `steps` steps. The `timeout 720` is a safety net, not the primary control.
+Unlike the original autoresearch-mlx which enforces a wall-clock TIME_BUDGET inside the training loop, mflux-train has no wall-clock cutoff — it trains for exactly `steps` steps. Per-subprocess Python timeouts in train.py provide the safety net.
 
 This means **`steps` is the knob the LLM tunes to fit within the time budget**. The LLM must learn:
 - If training finishes in < 3 min → try more steps
@@ -207,7 +207,7 @@ i7j8k9l	0.859	0.828	0.022	0.318	14.2	discard	quantize 8 → 4 (within noise)
 1. Create branch: `autoresearch-lora/<tag>`
 2. Verify prepare.py has been run (model downloaded, ref centroid computed)
 3. Initialize results.tsv with header
-4. Run baseline with default config: `timeout 720 uv run train.py > run.log 2>&1`
+4. Run baseline with default config: `uv run train.py > run.log 2>&1`
 5. Record baseline in results.tsv + reasoning.md
 
 ### Loop
@@ -232,7 +232,7 @@ LOOP FOREVER:
      git commit -m "experiment: <description>"
 
 4. RUN
-   timeout 720 uv run train.py > run.log 2>&1
+   uv run train.py > run.log 2>&1
 
 5. READ RESULTS
    grep "^clip_sim_centroid:" run.log

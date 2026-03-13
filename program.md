@@ -44,7 +44,7 @@ You edit `config.yaml` → `train.py` trains a LoRA via mflux, generates 24 eval
    ```
 4. Run baseline with default config:
    ```bash
-   timeout 720 uv run train.py > run.log 2>&1
+   uv run train.py > run.log 2>&1
    ```
 5. Record baseline in `results.tsv` and `reasoning.md`
 
@@ -70,7 +70,7 @@ LOOP FOREVER:
      git commit -m "experiment: <description>"
 
 4. RUN
-   timeout 720 uv run train.py > run.log 2>&1
+   uv run train.py > run.log 2>&1
 
 5. READ RESULTS
    grep "^clip_sim_centroid:" run.log

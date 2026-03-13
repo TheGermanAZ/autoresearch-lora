@@ -131,7 +131,7 @@ def main():
             ["mflux-train", "--config", str(mflux_json_path)],
             capture_output=True,
             text=True,
-            timeout=TIME_BUDGET + 120,  # Training + model load overhead
+            timeout=TIME_BUDGET + 300,  # Training + model load overhead (first run is slower)
         )
         if result.returncode != 0:
             print(f"TRAINING FAILED:\n{result.stderr[-500:]}", file=sys.stderr)
