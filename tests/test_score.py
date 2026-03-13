@@ -158,7 +158,7 @@ def test_vlm_judge_no_api_key():
     from score import vlm_judge
 
     # Ensure no key in env
-    old = os.environ.pop("ANTHROPIC_API_KEY", None)
+    old = os.environ.pop("OPENROUTER_API_KEY", None)
     try:
         result = vlm_judge(Path("/nonexistent.png"), "test prompt", api_key=None)
         assert result["vlm_avg"] == 0.0
@@ -167,7 +167,7 @@ def test_vlm_judge_no_api_key():
         assert result["aesthetic"] == 0.0
     finally:
         if old:
-            os.environ["ANTHROPIC_API_KEY"] = old
+            os.environ["OPENROUTER_API_KEY"] = old
 
 
 def test_vlm_judge_batch_no_api_key():
@@ -177,10 +177,10 @@ def test_vlm_judge_batch_no_api_key():
 
     from score import vlm_judge_batch
 
-    old = os.environ.pop("ANTHROPIC_API_KEY", None)
+    old = os.environ.pop("OPENROUTER_API_KEY", None)
     try:
         result = vlm_judge_batch([(Path("/fake.png"), "test")], api_key=None)
         assert result["vlm_avg"] == 0.0
     finally:
         if old:
-            os.environ["ANTHROPIC_API_KEY"] = old
+            os.environ["OPENROUTER_API_KEY"] = old

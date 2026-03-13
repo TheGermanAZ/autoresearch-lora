@@ -100,11 +100,12 @@ def embed_image(image_path: Path) -> np.ndarray:
     return np.array(embedding_list, dtype=np.float32)
 
 
-# --- VLM Judge (Claude Vision API) ---
+# --- VLM Judge (Gemini 1.5 Pro via OpenRouter) ---
 
-VLM_MODEL = "claude-haiku-4-5-20251001"
+VLM_MODEL = "google/gemini-pro-1.5"
 VLM_MAX_TOKENS = 60
-VLM_TIMEOUT = 30  # seconds
+VLM_TIMEOUT = 45  # seconds (OpenRouter can be slower)
+VLM_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 VLM_RUBRIC = """\
 Rate this AI-generated image on a scale of 1-10 for each criterion:
@@ -119,7 +120,7 @@ Respond with ONLY three numbers separated by commas, nothing else. Example: 7,8,
 
 
 def vlm_judge(image_path: Path, prompt: str, api_key: str | None = None) -> dict:
-    """Score a single image using Claude vision API.
+    """Score a single image using Gemini 1.5 Pro via OpenRouter.
 
     Returns dict with prompt_adherence, technical, aesthetic (each 0.0-1.0)
     and vlm_avg (arithmetic mean). Returns all zeros on failure or missing key.
@@ -127,7 +128,7 @@ def vlm_judge(image_path: Path, prompt: str, api_key: str | None = None) -> dict
     zero = {"prompt_adherence": 0.0, "technical": 0.0, "aesthetic": 0.0, "vlm_avg": 0.0}
 
     if not api_key:
-        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        api_key = os.environ.get("OPENROUTER_API_KEY")
     if not api_key:
         return zero
 
@@ -139,6 +140,7 @@ def vlm_judge(image_path: Path, prompt: str, api_key: str | None = None) -> dict
 
     rubric_text = VLM_RUBRIC.replace("{prompt}", prompt)
 
+    # OpenRouter uses OpenAI-compatible chat completions format
     body = json.dumps({
         "model": VLM_MODEL,
         "max_tokens": VLM_MAX_TOKENS,
@@ -146,8 +148,8 @@ def vlm_judge(image_path: Path, prompt: str, api_key: str | None = None) -> dict
             "role": "user",
             "content": [
                 {
-                    "type": "image",
-                    "source": {"type": "base64", "media_type": media_type, "data": b64},
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{media_type};base64,{b64}"},
                 },
                 {"type": "text", "text": rubric_text},
             ],
@@ -155,19 +157,18 @@ def vlm_judge(image_path: Path, prompt: str, api_key: str | None = None) -> dict
     }).encode()
 
     req = urllib.request.Request(
-        "https://api.anthropic.com/v1/messages",
+        VLM_API_URL,
         data=body,
         headers={
             "Content-Type": "application/json",
-            "x-api-key": api_key,
-            "anthropic-version": "2023-06-01",
+            "Authorization": f"Bearer {api_key}",
         },
     )
 
     try:
         with urllib.request.urlopen(req, timeout=VLM_TIMEOUT) as resp:
             result = json.loads(resp.read())
-        text = result["content"][0]["text"].strip()
+        text = result["choices"][0]["message"]["content"].strip()
         nums = re.findall(r"(\d+)", text)
         if len(nums) >= 3:
             adherence = min(float(nums[0]) / 10.0, 1.0)
@@ -198,7 +199,7 @@ def vlm_judge_batch(
     Returns dict with mean scores across all images.
     """
     if not api_key:
-        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        api_key = os.environ.get("OPENROUTER_API_KEY")
     if not api_key:
         return {"vlm_avg": 0.0, "vlm_adherence": 0.0, "vlm_technical": 0.0, "vlm_aesthetic": 0.0}
 

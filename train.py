@@ -216,7 +216,7 @@ def generate_and_score(config: dict, adapter_path: Path) -> tuple[dict, float]:
     )
 
     # VLM judge: score 1 image per trigger prompt (optional, needs ANTHROPIC_API_KEY)
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    api_key = os.environ.get("OPENROUTER_API_KEY")
     if api_key:
         print("VLM judging...", flush=True)
         # Pick seed=42 image for each trigger prompt

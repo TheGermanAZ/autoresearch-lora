@@ -198,17 +198,17 @@ CLIP image-image cosine similarity between generated eval images and the referen
 - `neg_control` — CLIP sim for images without trigger (overfitting detector, should stay low)
 
 ### VLM Judge (optional)
-If `ANTHROPIC_API_KEY` is set, Claude vision scores 1 image per trigger prompt on:
+If `OPENROUTER_API_KEY` is set, Gemini 1.5 Pro scores 1 image per trigger prompt on:
 - **Prompt adherence** — does the image match the generation prompt?
 - **Technical quality** — free of artifacts, distortions, incoherent elements?
 - **Aesthetic appeal** — visually appealing and cohesive?
 
-Each dimension is 0.0-1.0, averaged into `vlm_avg`. Cost: ~$0.005/image with Haiku.
+Each dimension is 0.0-1.0, averaged into `vlm_avg`.
 
 VLM scores are secondary signals for your reasoning — they don't drive keep/discard.
 Use them to understand *why* a config is better or worse (e.g., high CLIP but low technical quality suggests artifacts).
 
-To enable: `export ANTHROPIC_API_KEY=sk-ant-...` before running.
+To enable: `export OPENROUTER_API_KEY=sk-or-...` before running.
 
 ## Expected Output Format
 
@@ -230,7 +230,7 @@ eval_seconds:       112.4
 ---
 ```
 
-VLM lines only appear if `ANTHROPIC_API_KEY` is set. If not, `vlm_avg: 0.000000`.
+VLM lines only appear if `OPENROUTER_API_KEY` is set. If not, `vlm_avg: 0.000000`.
 
 ## results.tsv Schema
 
