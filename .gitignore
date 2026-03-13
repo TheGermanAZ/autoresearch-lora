@@ -3,8 +3,10 @@ __pycache__/
 eval_images/
 adapter/
 training/
+reference_images/
 *.npy
 run.log
+screen.log
 .cache/
 .venv/
 .mflux-train-config.json

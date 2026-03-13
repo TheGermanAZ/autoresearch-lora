@@ -61,10 +61,23 @@ uv run prepare.py --images ./my-photos/
 
 Place 5-20 reference images (512px+ resolution, .jpg/.png/.webp) in a directory and point `--images` at it.
 
-### Run an Experiment
+### Run a Single Experiment
 
 ```bash
 uv run train.py > run.log 2>&1
+```
+
+### Run a Batch (compare 3-5 configs)
+
+```bash
+# Edit batch.yaml with experiment overrides, then:
+uv run train.py --batch > run.log 2>&1
+```
+
+### Screen Configs (cheap crash detection)
+
+```bash
+uv run train.py --batch --screen > screen.log 2>&1
 ```
 
 ### Run the Autonomous Loop
@@ -76,7 +89,7 @@ git checkout -b autoresearch-lora/my-experiment
 # Then launch your LLM agent with program.md as context
 ```
 
-The agent will edit `config.yaml`, run `train.py`, read scores, keep or discard, and repeat.
+The agent proposes batches of experiments in `batch.yaml`, runs them, compares results, keeps the best, and loops.
 
 ## Config Parameters
 
@@ -109,12 +122,15 @@ Prompts 1-5 use the trigger word in various contexts. Prompt 6 is a negative con
 
 ```
 autoresearch-lora/
-├── train.py              # Pipeline orchestrator (train, generate, score)
+├── train.py              # Pipeline orchestrator (single, batch, screen modes)
 ├── prepare.py            # One-time setup (model download, CLIP embeddings, smoke test)
-├── config.yaml           # Hyperparameters (edited by LLM)
+├── config.yaml           # Current best hyperparameters (edited by LLM)
+├── batch.yaml            # Batch experiment definitions (3-5 per cycle)
 ├── config_translator.py  # YAML config --> mflux JSON translation
 ├── score.py              # CLIP scoring module (mlx_clip)
 ├── eval_prompts.txt      # 6 eval prompts ({trigger} placeholder)
+├── results.tsv           # Experiment log (all past runs)
+├── reasoning.md          # LLM research journal
 ├── program.md            # LLM agent instructions
 ├── pyproject.toml        # Dependencies and project metadata
 ├── docs/
