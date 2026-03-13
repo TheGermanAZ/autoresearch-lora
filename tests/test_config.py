@@ -54,6 +54,8 @@ def test_to_mflux_json_basic():
     assert mflux_config["optimizer"]["learning_rate"] == 3e-4
     assert mflux_config["training_loop"]["num_epochs"] == 1
     assert mflux_config["training_loop"]["batch_size"] == 1
+    assert mflux_config["training_loop"]["timestep_low"] == 0
+    assert mflux_config["training_loop"]["timestep_high"] is None
     assert isinstance(mflux_config["lora_layers"]["targets"], list)
     assert len(mflux_config["lora_layers"]["targets"]) > 0
 

@@ -11,7 +11,11 @@ import numpy as np
 
 def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
     """Cosine similarity between two vectors."""
-    return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
+    norm_a = np.linalg.norm(a)
+    norm_b = np.linalg.norm(b)
+    if norm_a == 0.0 or norm_b == 0.0:
+        return 0.0
+    return float(np.dot(a, b) / (norm_a * norm_b))
 
 
 def compute_centroid(embeddings: np.ndarray) -> np.ndarray:
@@ -33,25 +37,34 @@ def score_nearest_neighbor(
 
 
 def aggregate_scores(
-    centroid_sims: list[float],
-    nn_sims: list[float],
+    per_prompt_centroid_sims: dict[int, list[float]],
+    per_prompt_nn_sims: dict[int, list[float]],
     neg_sims: list[float],
     num_prompts: int,
-    seeds_per_prompt: int,
 ) -> dict:
-    """Aggregate per-image scores into experiment-level metrics."""
+    """Aggregate per-image scores into experiment-level metrics.
+
+    Args:
+        per_prompt_centroid_sims: {prompt_index: [sim, ...]} for trigger prompts
+        per_prompt_nn_sims: {prompt_index: [sim, ...]} for trigger prompts
+        neg_sims: centroid sims for negative control images
+        num_prompts: number of trigger prompts (excluding negative)
+    """
+    all_centroid = []
+    all_nn = []
     prompt_scores = []
     for i in range(num_prompts):
-        start = i * seeds_per_prompt
-        end = start + seeds_per_prompt
-        prompt_scores.append(float(np.mean(centroid_sims[start:end])))
+        sims = per_prompt_centroid_sims.get(i, [])
+        all_centroid.extend(sims)
+        all_nn.extend(per_prompt_nn_sims.get(i, []))
+        prompt_scores.append(float(np.mean(sims)) if sims else 0.0)
 
     return {
-        "clip_sim_centroid": float(np.mean(centroid_sims)),
-        "clip_sim_nn": float(np.mean(nn_sims)),
+        "clip_sim_centroid": float(np.mean(all_centroid)) if all_centroid else 0.0,
+        "clip_sim_nn": float(np.mean(all_nn)) if all_nn else 0.0,
         "prompt_scores": prompt_scores,
-        "score_stddev": float(np.std(centroid_sims)),
-        "neg_control": float(np.mean(neg_sims)),
+        "score_stddev": float(np.std(all_centroid)) if all_centroid else 0.0,
+        "neg_control": float(np.mean(neg_sims)) if neg_sims else 0.0,
     }
 
 

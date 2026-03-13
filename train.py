@@ -111,8 +111,8 @@ def main():
         sys.exit(0)
 
     # Clean previous training artifacts
-    for d in PROJECT_DIR.parent.glob("training*"):
-        if d.is_dir() and d.name.startswith("training"):
+    for d in PROJECT_DIR.glob("training*"):
+        if d.is_dir():
             shutil.rmtree(d, ignore_errors=True)
     if TRAINING_DIR.exists():
         shutil.rmtree(TRAINING_DIR, ignore_errors=True)
@@ -146,6 +146,9 @@ def main():
     try:
         checkpoint_dir = find_checkpoint_dir()
         adapter_path = extract_adapter_from_checkpoint(checkpoint_dir)
+        # Extract iteration count from checkpoint filename (e.g. 0000100_checkpoint.zip)
+        zip_files = sorted(checkpoint_dir.glob("*.zip"))
+        iterations_completed = int(zip_files[-1].stem.split("_")[0]) if zip_files else 0
     except FileNotFoundError as e:
         print(f"ADAPTER EXTRACTION FAILED: {e}", file=sys.stderr)
         sys.exit(1)
@@ -211,8 +214,8 @@ def main():
     centroid = np.load(CACHE_DIR / "ref_centroid.npy")
     ref_embeddings = np.load(CACHE_DIR / "ref_embeddings.npy")
 
-    trigger_centroid_sims = []
-    trigger_nn_sims = []
+    per_prompt_centroid = {}
+    per_prompt_nn = {}
     neg_sims = []
 
     print("Scoring...", flush=True)
@@ -222,21 +225,20 @@ def main():
         nn_sim = score_nearest_neighbor(emb, ref_embeddings)
 
         if pi < NUM_TRIGGER_PROMPTS:
-            trigger_centroid_sims.append(c_sim)
-            trigger_nn_sims.append(nn_sim)
+            per_prompt_centroid.setdefault(pi, []).append(c_sim)
+            per_prompt_nn.setdefault(pi, []).append(nn_sim)
         else:
             neg_sims.append(c_sim)
 
-    if not trigger_centroid_sims:
+    if not per_prompt_centroid:
         print("ERROR: No trigger prompt images scored", file=sys.stderr)
         sys.exit(1)
 
     scores = aggregate_scores(
-        trigger_centroid_sims,
-        trigger_nn_sims,
-        neg_sims if neg_sims else [0.0],
+        per_prompt_centroid,
+        per_prompt_nn,
+        neg_sims,
         num_prompts=NUM_TRIGGER_PROMPTS,
-        seeds_per_prompt=len(EVAL_SEEDS),
     )
 
     # --- SUMMARY OUTPUT ---
@@ -255,7 +257,7 @@ def main():
     print(f"neg_control:        {scores['neg_control']:.6f}")
     print(f"peak_vram_mb:       {peak_mb:.1f}")
     print(f"training_seconds:   {training_seconds:.1f}")
-    print(f"steps_completed:    {config.get('steps', 0)}")
+    print(f"steps_completed:    {iterations_completed}")
     print(f"eval_seconds:       {eval_seconds:.1f}")
     print("---")
 

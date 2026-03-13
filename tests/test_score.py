@@ -68,11 +68,11 @@ def test_score_nearest_neighbor_picks_closest():
 def test_aggregate_scores():
     from score import aggregate_scores
 
-    centroid_sims = [0.8] * 20
-    nn_sims = [0.75] * 20
+    per_prompt_centroid = {i: [0.8] * 4 for i in range(5)}
+    per_prompt_nn = {i: [0.75] * 4 for i in range(5)}
     neg_sims = [0.3] * 4
     result = aggregate_scores(
-        centroid_sims, nn_sims, neg_sims, num_prompts=5, seeds_per_prompt=4
+        per_prompt_centroid, per_prompt_nn, neg_sims, num_prompts=5
     )
     assert abs(result["clip_sim_centroid"] - 0.8) < 1e-6
     assert abs(result["clip_sim_nn"] - 0.75) < 1e-6
@@ -85,13 +85,66 @@ def test_aggregate_scores_varying():
     from score import aggregate_scores
 
     # 5 prompts × 4 seeds, with different scores per prompt
-    centroid_sims = [0.9] * 4 + [0.8] * 4 + [0.7] * 4 + [0.85] * 4 + [0.75] * 4
-    nn_sims = [0.85] * 20
+    per_prompt_centroid = {
+        0: [0.9] * 4,
+        1: [0.8] * 4,
+        2: [0.7] * 4,
+        3: [0.85] * 4,
+        4: [0.75] * 4,
+    }
+    per_prompt_nn = {i: [0.85] * 4 for i in range(5)}
     neg_sims = [0.35] * 4
     result = aggregate_scores(
-        centroid_sims, nn_sims, neg_sims, num_prompts=5, seeds_per_prompt=4
+        per_prompt_centroid, per_prompt_nn, neg_sims, num_prompts=5
     )
     assert abs(result["prompt_scores"][0] - 0.9) < 1e-6
     assert abs(result["prompt_scores"][1] - 0.8) < 1e-6
     assert abs(result["prompt_scores"][2] - 0.7) < 1e-6
     assert result["score_stddev"] > 0
+
+
+def test_aggregate_scores_partial_generation():
+    """If some images fail to generate, scores should still be correct."""
+    from score import aggregate_scores
+
+    # Prompt 2 only got 2 of 4 seeds
+    per_prompt_centroid = {
+        0: [0.9] * 4,
+        1: [0.8] * 4,
+        2: [0.7, 0.7],
+        3: [0.85] * 4,
+        4: [0.75] * 4,
+    }
+    per_prompt_nn = {
+        0: [0.85] * 4,
+        1: [0.85] * 4,
+        2: [0.80, 0.80],
+        3: [0.85] * 4,
+        4: [0.85] * 4,
+    }
+    result = aggregate_scores(
+        per_prompt_centroid, per_prompt_nn, [0.3], num_prompts=5
+    )
+    assert abs(result["prompt_scores"][2] - 0.7) < 1e-6
+    assert len(result["prompt_scores"]) == 5
+
+
+def test_aggregate_scores_empty_neg():
+    """Empty neg_sims should return 0.0 for neg_control."""
+    from score import aggregate_scores
+
+    per_prompt_centroid = {0: [0.8] * 4}
+    per_prompt_nn = {0: [0.75] * 4}
+    result = aggregate_scores(
+        per_prompt_centroid, per_prompt_nn, [], num_prompts=1
+    )
+    assert result["neg_control"] == 0.0
+
+
+def test_cosine_similarity_zero_norm():
+    """Zero-norm vector should return 0.0, not crash."""
+    from score import cosine_similarity
+
+    a = np.array([1.0, 0.0])
+    b = np.array([0.0, 0.0])
+    assert cosine_similarity(a, b) == 0.0

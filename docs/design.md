@@ -20,8 +20,8 @@ Adapted from [autoresearch-mlx](https://github.com/TheGermanAZ/autoresearch-mlx)
 ┌─────────────────────────────────────────────────────┐
 │              config.yaml (ONLY mutable file)          │
 │                                                      │
-│  rank, alpha, lr, batch_size, steps, num_epochs,     │
-│  quantize (4/6/8-bit), guidance, target_layers,      │
+│  rank, lr, batch_size, steps, num_epochs,             │
+│  quantize (3/4/5/6/8 or null), guidance,             │
 │  trigger_word, caption_template                      │
 └──────────────────────┬──────────────────────────────┘
                        │
@@ -85,18 +85,16 @@ autoresearch-lora/
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | rank | int | LoRA rank (4–128) |
-| alpha | int | LoRA alpha scaling |
 | lr | float | Learning rate |
 | batch_size | int | Training batch size |
-| steps | int | Training iterations |
+| steps | int | Denoising steps for the diffusion model (not training iterations) |
 | num_epochs | int | Number of epochs |
-| quantize | int | Base model quantization (4/6/8-bit) |
+| quantize | int\|null | Base model quantization (3/4/5/6/8 or null) |
 | guidance | float | Classifier-free guidance scale |
-| target_layers | string | Which layers get adapters (locked to "default" initially) |
 | trigger_word | string | Token that activates the LoRA |
 | caption_template | string | Template for training captions |
 
-**Note:** `target_layers` is locked to mflux's default attention layers initially. The combinatorial space is enormous — only unlock after exhausting simpler hyperparameter tuning.
+**Note:** There is no `alpha` parameter — mflux LoRA uses only `rank`. LoRA target layers are hardcoded to Klein 4B's dual-stream attention blocks.
 
 ### LoRA Artifact Lifecycle
 
@@ -316,14 +314,12 @@ All cached data lives in `~/.cache/autoresearch-lora/`:
 4. **Initialize config** — Write default `config.yaml`:
    ```yaml
    rank: 8
-   alpha: 16
    lr: 3e-4
    batch_size: 1
-   steps: 1000
+   steps: 9
    num_epochs: 1
    quantize: 4
    guidance: 4.0
-   target_layers: "default"
    trigger_word: "ohwx"
    caption_template: "a photo of {trigger}"
    ```
