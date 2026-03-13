@@ -73,11 +73,11 @@ autoresearch-lora/
 
 | Constant | Value | Rationale |
 |----------|-------|-----------|
-| TIME_BUDGET | 900s (15 min) | LoRA training is slower per step than LLM pretraining. 15 min gives enough steps for signal. |
-| TOTAL_TIMEOUT | 1500s (25 min) | Training + eval + scoring. Hard cap via `timeout 1800`. |
+| TIME_BUDGET | 300s (5 min) | Matches original autoresearch. Smoke test calibrates whether this gives enough steps. Bump to 10-15 min only if scores are too noisy. |
+| TOTAL_TIMEOUT | 600s (10 min) | Training + eval + scoring. Hard cap via `timeout 720`. If TIME_BUDGET is increased, adjust hard cap to TIME_BUDGET + 420s. |
 | EVAL_RESOLUTION | 1024×1024 | Klein 4B's native training resolution. 512 produces degraded output. |
 | EVAL_SEEDS | [42, 137, 256, 999] | Fixed seeds for deterministic comparison across experiments. |
-| EVAL_STEPS | 20 | Inference steps per image. Calibrated during smoke test. |
+| EVAL_STEPS | 20 (default) | Inference steps per image. Smoke test calibrates timing — if 24 images × T seconds exceeds 5 min, reduce to 12 or 8. |
 | BASE_MODEL | FLUX.2 Klein 4B | Smallest Flux model. Fast training, fits in 36GB. |
 
 ### Search Space (config.yaml)
@@ -97,6 +97,28 @@ autoresearch-lora/
 | caption_template | string | Template for training captions |
 
 **Note:** `target_layers` is locked to mflux's default attention layers initially. The combinatorial space is enormous — only unlock after exhausting simpler hyperparameter tuning.
+
+### LoRA Artifact Lifecycle
+
+Each experiment produces a LoRA adapter file. The lifecycle:
+
+1. **train.py cleans up** `./adapter/` directory before each experiment
+2. **mflux-train** writes the trained adapter to `./adapter/` (or the path configured in the mflux JSON config)
+3. **mflux-generate** references it via `--lora-paths ./adapter/` to generate eval images
+4. **After scoring**, the adapter is disposable — only the score matters for keep/discard. The adapter directory gets cleaned on the next experiment run.
+
+The exact output path and `--lora-paths` flag must be confirmed during pre-implementation validation (step 1).
+
+### Training Steps vs Time Budget
+
+Unlike the original autoresearch-mlx which enforces a wall-clock TIME_BUDGET inside the training loop, mflux-train has no wall-clock cutoff — it trains for exactly `steps` steps. The `timeout 720` is a safety net, not the primary control.
+
+This means **`steps` is the knob the LLM tunes to fit within the time budget**. The LLM must learn:
+- If training finishes in < 3 min → try more steps
+- If training takes > 6 min → reduce steps
+- The goal is to maximize useful training within ~5 minutes
+
+The `steps` and `num_epochs` parameters may interact depending on mflux's implementation. Verify during pre-implementation validation which takes precedence. If both are set, document the behavior in program.md so the LLM knows.
 
 ### Memory Budget
 
@@ -161,7 +183,7 @@ prompt_scores:      0.85, 0.83, 0.87, 0.86, 0.84
 score_stddev:       0.018
 neg_control:        0.312
 peak_vram_mb:       16400
-training_seconds:   900.0
+training_seconds:   300.0
 steps_completed:    680
 eval_seconds:       112.4
 ---
@@ -185,7 +207,7 @@ i7j8k9l	0.859	0.828	0.022	0.318	14.2	discard	quantize 8 → 4 (within noise)
 1. Create branch: `autoresearch-lora/<tag>`
 2. Verify prepare.py has been run (model downloaded, ref centroid computed)
 3. Initialize results.tsv with header
-4. Run baseline with default config: `timeout 1800 uv run train.py > run.log 2>&1`
+4. Run baseline with default config: `timeout 720 uv run train.py > run.log 2>&1`
 5. Record baseline in results.tsv + reasoning.md
 
 ### Loop
@@ -210,7 +232,7 @@ LOOP FOREVER:
      git commit -m "experiment: <description>"
 
 4. RUN
-   timeout 1800 uv run train.py > run.log 2>&1
+   timeout 720 uv run train.py > run.log 2>&1
 
 5. READ RESULTS
    grep "^clip_sim_centroid:" run.log
@@ -259,7 +281,7 @@ Adapt based on results. If rank barely matters but LR is sensitive, spend more t
 
 ### Cadence
 
-~25 min per experiment. ~2.4 experiments/hour. **~19 experiments overnight** (8 hours).
+~8 min per experiment (5 min train + ~2.5 min eval). ~7.5 experiments/hour. **~60 experiments overnight** (8 hours). If scores are too noisy at 5 min, bump TIME_BUDGET to 600s (10 min) or 900s (15 min).
 
 ---
 
