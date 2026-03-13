@@ -2,7 +2,7 @@
 
 Provides CLIP image-image similarity (cosine, centroid, nearest-neighbor),
 score aggregation, CLIP image embedding via mlx_clip, and optional VLM
-judge scoring via Claude vision API.
+judge scoring via Gemini 3 Pro on OpenRouter.
 """
 
 import base64
@@ -100,7 +100,7 @@ def embed_image(image_path: Path) -> np.ndarray:
     return np.array(embedding_list, dtype=np.float32)
 
 
-# --- VLM Judge (Gemini 1.5 Pro via OpenRouter) ---
+# --- VLM Judge (Gemini 3 Pro via OpenRouter) ---
 
 VLM_MODEL = "google/gemini-3-pro-preview"
 VLM_MAX_TOKENS = 60
@@ -120,7 +120,7 @@ Respond with ONLY three numbers separated by commas, nothing else. Example: 7,8,
 
 
 def vlm_judge(image_path: Path, prompt: str, api_key: str | None = None) -> dict:
-    """Score a single image using Gemini 1.5 Pro via OpenRouter.
+    """Score a single image using Gemini 3 Pro via OpenRouter.
 
     Returns dict with prompt_adherence, technical, aesthetic (each 0.0-1.0)
     and vlm_avg (arithmetic mean). Returns all zeros on failure or missing key.
@@ -169,7 +169,14 @@ def vlm_judge(image_path: Path, prompt: str, api_key: str | None = None) -> dict
         with urllib.request.urlopen(req, timeout=VLM_TIMEOUT) as resp:
             result = json.loads(resp.read())
         text = result["choices"][0]["message"]["content"].strip()
-        nums = re.findall(r"(\d+)", text)
+        # Extract comma-separated scores. Handles "7,8,6" and "7/10, 8/10, 6/10"
+        # by splitting on commas first, then taking the first number from each part.
+        parts = [p.strip() for p in text.split(",")]
+        nums = []
+        for part in parts:
+            m = re.search(r"(\d+)", part)
+            if m:
+                nums.append(m.group(1))
         if len(nums) >= 3:
             adherence = min(float(nums[0]) / 10.0, 1.0)
             technical = min(float(nums[1]) / 10.0, 1.0)

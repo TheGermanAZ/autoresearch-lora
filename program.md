@@ -198,7 +198,7 @@ CLIP image-image cosine similarity between generated eval images and the referen
 - `neg_control` — CLIP sim for images without trigger (overfitting detector, should stay low)
 
 ### VLM Judge (optional)
-If `OPENROUTER_API_KEY` is set, Gemini 1.5 Pro scores 1 image per trigger prompt on:
+If `OPENROUTER_API_KEY` is set, Gemini 3 Pro scores 1 image per trigger prompt on:
 - **Prompt adherence** — does the image match the generation prompt?
 - **Technical quality** — free of artifacts, distortions, incoherent elements?
 - **Aesthetic appeal** — visually appealing and cohesive?

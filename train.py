@@ -91,7 +91,7 @@ def clean_artifacts():
     if TRAINING_DIR.exists():
         shutil.rmtree(TRAINING_DIR, ignore_errors=True)
     if ADAPTER_DIR.exists():
-        shutil.rmtree(ADAPTER_DIR)
+        shutil.rmtree(ADAPTER_DIR, ignore_errors=True)
     ADAPTER_DIR.mkdir(parents=True, exist_ok=True)
     if EVAL_DIR.exists():
         shutil.rmtree(EVAL_DIR)
@@ -215,7 +215,7 @@ def generate_and_score(config: dict, adapter_path: Path) -> tuple[dict, float]:
         num_prompts=NUM_TRIGGER_PROMPTS,
     )
 
-    # VLM judge: score 1 image per trigger prompt (optional, needs ANTHROPIC_API_KEY)
+    # VLM judge: score 1 image per trigger prompt (optional, needs OPENROUTER_API_KEY)
     api_key = os.environ.get("OPENROUTER_API_KEY")
     if api_key:
         print("VLM judging...", flush=True)
@@ -244,7 +244,7 @@ def run_experiment(config: dict, tag: str = "") -> dict:
     try:
         training_seconds, adapter_path, iterations = train_lora(config, mflux_json_path)
         scores, eval_seconds = generate_and_score(config, adapter_path)
-    except RuntimeError as e:
+    except Exception as e:
         print(f"{label}FAILED: {e}", file=sys.stderr)
         return {
             "tag": tag,
@@ -354,9 +354,9 @@ def load_batch_configs() -> list[tuple[str, dict]]:
 
     configs = []
     for exp in batch["experiments"]:
-        tag = exp.pop("tag", f"exp{len(configs)}")
+        tag = exp.get("tag", f"exp{len(configs)}")
         merged = dict(base_config)
-        merged.update(exp)
+        merged.update({k: v for k, v in exp.items() if k != "tag"})
         configs.append((tag, merged))
 
     return configs
