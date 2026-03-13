@@ -1,0 +1,16 @@
+[project]
+name = "autoresearch-lora"
+version = "0.1.0"
+description = "Autonomous LoRA training loop for image generation on Apple Silicon"
+requires-python = ">=3.11"
+dependencies = [
+    "mflux==0.16.9",
+    "mlx>=0.30.0,<0.32",
+    "mlx_clip @ git+https://github.com/harperreed/mlx_clip.git@f56e3ecc72c74c68b6b50eb6f50c3f22fc23fe2c",
+    "numpy",
+    "pillow",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]

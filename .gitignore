@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+eval_images/
+adapter/
+training/
+*.npy
+run.log
+.cache/
+.venv/
+.mflux-train-config.json
+uv.lock
