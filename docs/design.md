@@ -1,5 +1,7 @@
 # autoresearch-lora: Design Spec
 
+> **Note:** This is the original pre-implementation design document. For current behavior, CLI modes, and the batch workflow, see `program.md` and `README.md`. The implementation has evolved beyond this spec (batch mode, screen mode, VLM judge scoring, etc.).
+
 Autonomous LoRA training loop for image generation on Apple Silicon. An LLM proposes experiments by editing a config file, a fixed pipeline trains LoRAs via mflux, generates eval images, and scores them with CLIP. The LLM keeps or discards based on results and loops indefinitely.
 
 Adapted from [autoresearch-mlx](https://github.com/TheGermanAZ/autoresearch-mlx) — same loop pattern, different domain.
@@ -20,8 +22,8 @@ Adapted from [autoresearch-mlx](https://github.com/TheGermanAZ/autoresearch-mlx)
 ┌─────────────────────────────────────────────────────┐
 │              config.yaml (ONLY mutable file)          │
 │                                                      │
-│  rank, alpha, lr, batch_size, steps, num_epochs,     │
-│  quantize (4/6/8-bit), guidance, target_layers,      │
+│  rank, lr, batch_size, steps, num_epochs,             │
+│  quantize (3/4/5/6/8 or null), guidance,             │
 │  trigger_word, caption_template                      │
 └──────────────────────┬──────────────────────────────┘
                        │
@@ -74,7 +76,7 @@ autoresearch-lora/
 | Constant | Value | Rationale |
 |----------|-------|-----------|
 | TIME_BUDGET | 300s (5 min) | Matches original autoresearch. Smoke test calibrates whether this gives enough steps. Bump to 10-15 min only if scores are too noisy. |
-| TOTAL_TIMEOUT | 600s (10 min) | Training + eval + scoring. Hard cap via `timeout 720`. If TIME_BUDGET is increased, adjust hard cap to TIME_BUDGET + 420s. |
+| TOTAL_TIMEOUT | 600s (10 min) | Training + eval + scoring. Enforced by per-subprocess Python timeouts in train.py. |
 | EVAL_RESOLUTION | 1024×1024 | Klein 4B's native training resolution. 512 produces degraded output. |
 | EVAL_SEEDS | [42, 137, 256, 999] | Fixed seeds for deterministic comparison across experiments. |
 | EVAL_STEPS | 20 (default) | Inference steps per image. Smoke test calibrates timing — if 24 images × T seconds exceeds 5 min, reduce to 12 or 8. |
@@ -85,18 +87,16 @@ autoresearch-lora/
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | rank | int | LoRA rank (4–128) |
-| alpha | int | LoRA alpha scaling |
 | lr | float | Learning rate |
 | batch_size | int | Training batch size |
-| steps | int | Training iterations |
+| steps | int | Denoising steps for the diffusion model (not training iterations) |
 | num_epochs | int | Number of epochs |
-| quantize | int | Base model quantization (4/6/8-bit) |
+| quantize | int\|null | Base model quantization (3/4/5/6/8 or null) |
 | guidance | float | Classifier-free guidance scale |
-| target_layers | string | Which layers get adapters (locked to "default" initially) |
 | trigger_word | string | Token that activates the LoRA |
 | caption_template | string | Template for training captions |
 
-**Note:** `target_layers` is locked to mflux's default attention layers initially. The combinatorial space is enormous — only unlock after exhausting simpler hyperparameter tuning.
+**Note:** There is no `alpha` parameter — mflux LoRA uses only `rank`. LoRA target layers are hardcoded to Klein 4B's dual-stream attention blocks.
 
 ### LoRA Artifact Lifecycle
 
@@ -111,7 +111,7 @@ The exact output path and `--lora-paths` flag must be confirmed during pre-imple
 
 ### Training Steps vs Time Budget
 
-Unlike the original autoresearch-mlx which enforces a wall-clock TIME_BUDGET inside the training loop, mflux-train has no wall-clock cutoff — it trains for exactly `steps` steps. The `timeout 720` is a safety net, not the primary control.
+Unlike the original autoresearch-mlx which enforces a wall-clock TIME_BUDGET inside the training loop, mflux-train has no wall-clock cutoff — it trains for exactly `steps` steps. Per-subprocess Python timeouts in train.py provide the safety net.
 
 This means **`steps` is the knob the LLM tunes to fit within the time budget**. The LLM must learn:
 - If training finishes in < 3 min → try more steps
@@ -192,10 +192,10 @@ eval_seconds:       112.4
 ### results.tsv Schema
 
 ```
-commit	clip_centroid	clip_nn	stddev	neg_ctrl	memory_gb	status	description
-a1b2c3d	0.847	0.812	0.018	0.312	16.0	keep	baseline (default config)
-e4f5g6h	0.862	0.831	0.015	0.305	16.0	keep	rank 8 → 16
-i7j8k9l	0.859	0.828	0.022	0.318	14.2	discard	quantize 8 → 4 (within noise)
+commit	clip_centroid	clip_nn	stddev	neg_ctrl	vlm	memory_gb	status	description
+a1b2c3d	0.847	0.812	0.018	0.312	0.733	16.0	keep	baseline (default config)
+e4f5g6h	0.862	0.831	0.015	0.305	0.756	16.0	keep	rank 8 → 16
+i7j8k9l	0.859	0.828	0.022	0.318	0.710	14.2	discard	quantize 8 → 4 (within noise)
 ```
 
 ---
@@ -207,7 +207,7 @@ i7j8k9l	0.859	0.828	0.022	0.318	14.2	discard	quantize 8 → 4 (within noise)
 1. Create branch: `autoresearch-lora/<tag>`
 2. Verify prepare.py has been run (model downloaded, ref centroid computed)
 3. Initialize results.tsv with header
-4. Run baseline with default config: `timeout 720 uv run train.py > run.log 2>&1`
+4. Run baseline with default config: `uv run train.py > run.log 2>&1`
 5. Record baseline in results.tsv + reasoning.md
 
 ### Loop
@@ -228,11 +228,11 @@ LOOP FOREVER:
 3. EDIT config.yaml
    • Change ONE thing (or a deliberate combo)
    • Stage + commit:
-     git add autoresearch-lora/config.yaml autoresearch-lora/reasoning.md
+     git add config.yaml reasoning.md
      git commit -m "experiment: <description>"
 
 4. RUN
-   timeout 720 uv run train.py > run.log 2>&1
+   uv run train.py > run.log 2>&1
 
 5. READ RESULTS
    grep "^clip_sim_centroid:" run.log
@@ -243,13 +243,13 @@ LOOP FOREVER:
 
    If improved (delta >= 0.005):
      → Log to results.tsv (status: keep)
-     → git add autoresearch-lora/results.tsv
+     → git add results.tsv
      → git commit -m "results: keep <description>"
 
    If worse or within noise (delta < 0.005):
      → Log to results.tsv (status: discard)
      → Revert config: git checkout HEAD~1 -- autoresearch-lora/config.yaml
-     → git add autoresearch-lora/config.yaml autoresearch-lora/results.tsv
+     → git add config.yaml results.tsv
      → git commit -m "revert: <description>"
 
    If crash or timeout:
@@ -316,14 +316,12 @@ All cached data lives in `~/.cache/autoresearch-lora/`:
 4. **Initialize config** — Write default `config.yaml`:
    ```yaml
    rank: 8
-   alpha: 16
    lr: 3e-4
    batch_size: 1
-   steps: 1000
+   steps: 9
    num_epochs: 1
    quantize: 4
    guidance: 4.0
-   target_layers: "default"
    trigger_word: "ohwx"
    caption_template: "a photo of {trigger}"
    ```

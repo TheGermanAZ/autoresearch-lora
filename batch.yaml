@@ -1,0 +1,13 @@
+# Batch experiments: each inherits from config.yaml, only specify overrides.
+# Every experiment needs a unique 'tag'. Run with: uv run train.py --batch
+#
+# Example: sweep LoRA rank
+experiments:
+  - tag: rank4
+    rank: 4
+  - tag: rank8
+    rank: 8
+  - tag: rank16
+    rank: 16
+  - tag: rank32
+    rank: 32

@@ -1,0 +1,9 @@
+rank: 8
+lr: 0.0003
+batch_size: 1
+steps: 9
+num_epochs: 1
+quantize: 4
+guidance: 4.0
+trigger_word: ohwx
+caption_template: a photo of {trigger}

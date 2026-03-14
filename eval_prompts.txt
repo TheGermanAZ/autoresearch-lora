@@ -1,0 +1,6 @@
+a photo of {trigger}
+a photo of {trigger} in a coffee shop
+a watercolor painting of {trigger}
+{trigger} laughing, candid photo
+a close-up portrait of {trigger}, soft lighting
+a photo of a landscape at sunset

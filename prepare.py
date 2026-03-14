@@ -69,7 +69,9 @@ def validate_and_copy_images(source_dir: Path) -> list[Path]:
                     f"Warning: {img_path.name} is {w}x{h} (min {MIN_RESOLUTION}x{MIN_RESOLUTION})"
                 )
 
-    # Copy to cache
+    # Clear and re-create cache to avoid stale images from previous runs
+    if IMAGES_DIR.exists():
+        shutil.rmtree(IMAGES_DIR)
     IMAGES_DIR.mkdir(parents=True, exist_ok=True)
     for img_path in images:
         shutil.copy2(img_path, IMAGES_DIR / img_path.name)
@@ -170,20 +172,25 @@ def run_smoke_test(project_dir: Path):
         sys.exit(1)
     print(f"OK ({time.time() - t0:.1f}s)")
 
-    # Find the latest checkpoint
+    # Find the latest checkpoint (same logic as train.py: sort by mtime, require .zip)
     checkpoint_dir = None
-    for d in sorted(Path(str(training_dir)).parent.glob("training*")):
+    parent = training_dir.parent
+    candidates = sorted(
+        [d for d in parent.glob("training*") if d.is_dir()],
+        key=lambda d: d.stat().st_mtime,
+        reverse=True,
+    )
+    for d in candidates:
         cp = d / "checkpoints"
-        if cp.exists():
+        if cp.exists() and any(cp.glob("*.zip")):
             checkpoint_dir = cp
             training_dir = d
             break
     if not checkpoint_dir:
-        # Try the exact path
         checkpoint_dir = training_dir / "checkpoints"
 
-    if not checkpoint_dir.exists():
-        print(f"  FAIL: no checkpoints directory found")
+    if not checkpoint_dir.exists() or not any(checkpoint_dir.glob("*.zip")):
+        print("  FAIL: no checkpoints directory with ZIP files found")
         sys.exit(1)
 
     # Extract adapter from latest checkpoint ZIP

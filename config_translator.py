@@ -59,9 +59,14 @@ def to_mflux_json(config: dict, data_dir: Path, output_dir: Path) -> dict:
         target["rank"] = rank
         targets.append(target)
 
+    VALID_QUANTIZE = {3, 4, 5, 6, 8}
     quantize_val = config.get("quantize")
     if quantize_val is not None:
         quantize_val = int(quantize_val)
+        if quantize_val not in VALID_QUANTIZE:
+            raise ConfigError(
+                f"quantize must be one of {sorted(VALID_QUANTIZE)} or null, got {quantize_val}"
+            )
 
     return {
         "model": "flux2-klein-base-4b",
@@ -75,6 +80,8 @@ def to_mflux_json(config: dict, data_dir: Path, output_dir: Path) -> dict:
         "training_loop": {
             "num_epochs": config.get("num_epochs", 1),
             "batch_size": config.get("batch_size", 1),
+            "timestep_low": 0,
+            "timestep_high": None,
         },
         "optimizer": {
             "name": "AdamW",
@@ -103,6 +110,9 @@ def prepare_data_dir(config: dict, source_images_dir: Path, data_dir: Path):
     mflux auto-discovers images in the data directory and expects a matching
     .txt file for each image containing the caption/prompt.
     """
+    # Clear stale data from previous runs before populating
+    if data_dir.exists():
+        shutil.rmtree(data_dir)
     data_dir.mkdir(parents=True, exist_ok=True)
 
     trigger = config.get("trigger_word", "ohwx")
