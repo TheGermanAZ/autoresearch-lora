@@ -147,3 +147,119 @@ def test_prepare_data_dir(tmp_path):
     # Check captions
     for txt in txts:
         assert txt.read_text().strip() == "a photo of ohwx"
+
+
+def test_to_mflux_json_all_defaults():
+    """Empty config should produce valid JSON with all defaults."""
+    from config_translator import to_mflux_json
+
+    result = to_mflux_json({}, Path("/tmp/data"), Path("/tmp/out"))
+    assert result["model"] == "flux2-klein-base-4b"
+    assert result["steps"] == 9
+    assert result["guidance"] == 4.0
+    assert result["quantize"] is None
+    assert result["optimizer"]["learning_rate"] == 3e-4
+    assert result["training_loop"]["num_epochs"] == 1
+    assert result["training_loop"]["batch_size"] == 1
+    for target in result["lora_layers"]["targets"]:
+        assert target["rank"] == 8
+
+
+def test_to_mflux_json_rank_does_not_mutate_defaults():
+    """Successive calls must not leak rank values between calls."""
+    from config_translator import KLEIN_4B_DEFAULT_TARGETS, to_mflux_json
+
+    to_mflux_json({"rank": 32}, Path("/d"), Path("/o"))
+    result2 = to_mflux_json({"rank": 4}, Path("/d"), Path("/o"))
+
+    for target in result2["lora_layers"]["targets"]:
+        assert target["rank"] == 4
+
+    # Original defaults must be untouched
+    for t in KLEIN_4B_DEFAULT_TARGETS:
+        assert "rank" not in t
+
+
+def test_to_mflux_json_quantize_string_coercion():
+    """YAML may parse '4' as string; should coerce to int."""
+    from config_translator import to_mflux_json
+
+    result = to_mflux_json({"quantize": "4"}, Path("/d"), Path("/o"))
+    assert result["quantize"] == 4
+    assert isinstance(result["quantize"], int)
+
+
+def test_to_mflux_json_invalid_quantize():
+    """Invalid quantize value should raise ConfigError."""
+    from config_translator import ConfigError, to_mflux_json
+
+    try:
+        to_mflux_json({"quantize": 7}, Path("/d"), Path("/o"))
+        assert False, "Should have raised ConfigError"
+    except ConfigError:
+        pass
+
+
+def test_prepare_data_dir_cleans_stale_files(tmp_path):
+    """Stale files from a previous run must be deleted."""
+    from config_translator import prepare_data_dir
+
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    (source_dir / "img0.jpg").write_bytes(b"fake")
+    (source_dir / "img1.jpg").write_bytes(b"fake")
+
+    config = {"trigger_word": "ohwx", "caption_template": "a photo of {trigger}"}
+    data_dir = tmp_path / "data"
+
+    # First run: 2 images
+    prepare_data_dir(config, source_dir, data_dir)
+    assert len(list(data_dir.glob("*.jpg"))) == 2
+
+    # Remove one source image
+    (source_dir / "img1.jpg").unlink()
+    prepare_data_dir(config, source_dir, data_dir)
+
+    # Must have exactly 1 image, not 2
+    assert len(list(data_dir.glob("*.jpg"))) == 1
+    assert len(list(data_dir.glob("*.txt"))) == 1
+
+
+def test_prepare_data_dir_skips_non_images(tmp_path):
+    """Non-image files should not be copied."""
+    from config_translator import prepare_data_dir
+
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    (source_dir / "photo.png").write_bytes(b"fake")
+    (source_dir / "notes.txt").write_text("not an image")
+    (source_dir / ".DS_Store").write_bytes(b"\x00")
+
+    config = {"trigger_word": "sks", "caption_template": "{trigger} portrait"}
+    data_dir = tmp_path / "data"
+    prepare_data_dir(config, source_dir, data_dir)
+
+    assert len(list(data_dir.glob("*.png"))) == 1
+    txts = list(data_dir.glob("*.txt"))
+    assert len(txts) == 1
+    assert txts[0].read_text().strip() == "sks portrait"
+
+
+def test_to_mflux_json_checkpoint_save_frequency():
+    """save_frequency must equal num_epochs to ensure checkpoint exists."""
+    from config_translator import to_mflux_json
+
+    for epochs in [1, 5, 50]:
+        result = to_mflux_json({"num_epochs": epochs}, Path("/d"), Path("/o"))
+        assert result["checkpoint"]["save_frequency"] == epochs
+
+
+def test_load_config_non_dict():
+    """YAML that parses to a non-dict should raise ConfigError."""
+    from config_translator import ConfigError, load_config
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        f.write("- item1\n- item2\n")
+        f.flush()
+        with pytest.raises(ConfigError, match="must be a YAML mapping"):
+            load_config(Path(f.name))

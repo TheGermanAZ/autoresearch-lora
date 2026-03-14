@@ -1,5 +1,7 @@
 # autoresearch-lora: Design Spec
 
+> **Note:** This is the original pre-implementation design document. For current behavior, CLI modes, and the batch workflow, see `program.md` and `README.md`. The implementation has evolved beyond this spec (batch mode, screen mode, VLM judge scoring, etc.).
+
 Autonomous LoRA training loop for image generation on Apple Silicon. An LLM proposes experiments by editing a config file, a fixed pipeline trains LoRAs via mflux, generates eval images, and scores them with CLIP. The LLM keeps or discards based on results and loops indefinitely.
 
 Adapted from [autoresearch-mlx](https://github.com/TheGermanAZ/autoresearch-mlx) — same loop pattern, different domain.
@@ -190,10 +192,10 @@ eval_seconds:       112.4
 ### results.tsv Schema
 
 ```
-commit	clip_centroid	clip_nn	stddev	neg_ctrl	memory_gb	status	description
-a1b2c3d	0.847	0.812	0.018	0.312	16.0	keep	baseline (default config)
-e4f5g6h	0.862	0.831	0.015	0.305	16.0	keep	rank 8 → 16
-i7j8k9l	0.859	0.828	0.022	0.318	14.2	discard	quantize 8 → 4 (within noise)
+commit	clip_centroid	clip_nn	stddev	neg_ctrl	vlm	memory_gb	status	description
+a1b2c3d	0.847	0.812	0.018	0.312	0.733	16.0	keep	baseline (default config)
+e4f5g6h	0.862	0.831	0.015	0.305	0.756	16.0	keep	rank 8 → 16
+i7j8k9l	0.859	0.828	0.022	0.318	0.710	14.2	discard	quantize 8 → 4 (within noise)
 ```
 
 ---
@@ -226,7 +228,7 @@ LOOP FOREVER:
 3. EDIT config.yaml
    • Change ONE thing (or a deliberate combo)
    • Stage + commit:
-     git add autoresearch-lora/config.yaml autoresearch-lora/reasoning.md
+     git add config.yaml reasoning.md
      git commit -m "experiment: <description>"
 
 4. RUN
@@ -241,13 +243,13 @@ LOOP FOREVER:
 
    If improved (delta >= 0.005):
      → Log to results.tsv (status: keep)
-     → git add autoresearch-lora/results.tsv
+     → git add results.tsv
      → git commit -m "results: keep <description>"
 
    If worse or within noise (delta < 0.005):
      → Log to results.tsv (status: discard)
      → Revert config: git checkout HEAD~1 -- autoresearch-lora/config.yaml
-     → git add autoresearch-lora/config.yaml autoresearch-lora/results.tsv
+     → git add config.yaml results.tsv
      → git commit -m "revert: <description>"
 
    If crash or timeout:

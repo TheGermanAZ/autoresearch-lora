@@ -59,9 +59,14 @@ def to_mflux_json(config: dict, data_dir: Path, output_dir: Path) -> dict:
         target["rank"] = rank
         targets.append(target)
 
+    VALID_QUANTIZE = {3, 4, 5, 6, 8}
     quantize_val = config.get("quantize")
     if quantize_val is not None:
         quantize_val = int(quantize_val)
+        if quantize_val not in VALID_QUANTIZE:
+            raise ConfigError(
+                f"quantize must be one of {sorted(VALID_QUANTIZE)} or null, got {quantize_val}"
+            )
 
     return {
         "model": "flux2-klein-base-4b",

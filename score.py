@@ -39,6 +39,8 @@ def score_nearest_neighbor(
 ) -> float:
     """Max cosine similarity of eval image against any reference image."""
     sims = [cosine_similarity(eval_embedding, ref) for ref in ref_embeddings]
+    if not sims:
+        return 0.0
     return max(sims)
 
 
@@ -133,9 +135,9 @@ def vlm_judge(image_path: Path, prompt: str, api_key: str | None = None) -> dict
         return zero
 
     # Read and base64-encode the image
-    image_data = Path(image_path).read_bytes()
+    image_data = image_path.read_bytes()
     b64 = base64.standard_b64encode(image_data).decode("ascii")
-    suffix = Path(image_path).suffix.lower()
+    suffix = image_path.suffix.lower()
     media_type = "image/png" if suffix == ".png" else "image/jpeg"
 
     rubric_text = VLM_RUBRIC.replace("{prompt}", prompt)

@@ -254,8 +254,10 @@ def run_experiment(config: dict, tag: str = "") -> dict:
             "config": config,
         }
 
-    peak_bytes = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    peak_mb = peak_bytes / (1024 * 1024)
+    # Use RUSAGE_CHILDREN to capture mflux subprocess peak memory, not just orchestrator
+    children_rss = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
+    self_rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    peak_mb = max(children_rss, self_rss) / (1024 * 1024)
 
     vlm_avg = scores.get("vlm_avg", 0.0)
 
@@ -268,6 +270,9 @@ def run_experiment(config: dict, tag: str = "") -> dict:
         "score_stddev": scores["score_stddev"],
         "neg_control": scores["neg_control"],
         "vlm_avg": vlm_avg,
+        "vlm_adherence": scores.get("vlm_adherence", 0.0),
+        "vlm_technical": scores.get("vlm_technical", 0.0),
+        "vlm_aesthetic": scores.get("vlm_aesthetic", 0.0),
         "peak_vram_mb": peak_mb,
         "training_seconds": training_seconds,
         "iterations_completed": iterations,
@@ -339,7 +344,11 @@ def load_batch_configs() -> list[tuple[str, dict]]:
     """Load batch.yaml, merge each experiment with config.yaml base."""
     from config_translator import ConfigError, load_config
 
-    base_config = load_config(PROJECT_DIR / "config.yaml")
+    try:
+        base_config = load_config(PROJECT_DIR / "config.yaml")
+    except ConfigError as e:
+        print(f"CONFIG ERROR: {e}", file=sys.stderr)
+        sys.exit(1)
     batch_path = PROJECT_DIR / "batch.yaml"
     if not batch_path.exists():
         print("ERROR: batch.yaml not found", file=sys.stderr)

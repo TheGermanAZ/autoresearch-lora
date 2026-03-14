@@ -150,6 +150,205 @@ def test_cosine_similarity_zero_norm():
     assert cosine_similarity(a, b) == 0.0
 
 
+def test_score_nearest_neighbor_empty_refs():
+    """Empty ref_embeddings should return 0.0, not crash."""
+    from score import score_nearest_neighbor
+
+    eval_embedding = np.array([1.0, 0.0])
+    ref_embeddings = np.array([]).reshape(0, 2)
+    assert score_nearest_neighbor(eval_embedding, ref_embeddings) == 0.0
+
+
+def test_aggregate_scores_fully_empty():
+    """Completely empty inputs should return all zeros."""
+    from score import aggregate_scores
+
+    result = aggregate_scores({}, {}, [], num_prompts=0)
+    assert result["clip_sim_centroid"] == 0.0
+    assert result["clip_sim_nn"] == 0.0
+    assert result["neg_control"] == 0.0
+    assert result["prompt_scores"] == []
+    assert result["score_stddev"] == 0.0
+
+
+def test_vlm_judge_parses_simple_csv(tmp_path, monkeypatch):
+    """VLM returns clean '7,8,6'."""
+    import json
+    import urllib.request
+    from score import vlm_judge
+
+    img = tmp_path / "test.png"
+    img.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+
+    body = json.dumps({"choices": [{"message": {"content": "7,8,6"}}]}).encode()
+
+    class FakeResp:
+        def read(self):
+            return body
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            pass
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=None: FakeResp())
+    result = vlm_judge(img, "a photo of ohwx", api_key="fake-key")
+    assert abs(result["prompt_adherence"] - 0.7) < 1e-6
+    assert abs(result["technical"] - 0.8) < 1e-6
+    assert abs(result["aesthetic"] - 0.6) < 1e-6
+    assert abs(result["vlm_avg"] - 0.7) < 1e-6
+
+
+def test_vlm_judge_parses_slash_ten_format(tmp_path, monkeypatch):
+    """VLM returns '7/10, 8/10, 6/10' — the format the regex fix targets."""
+    import json
+    import urllib.request
+    from score import vlm_judge
+
+    img = tmp_path / "test.png"
+    img.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+
+    body = json.dumps({"choices": [{"message": {"content": "7/10, 8/10, 6/10"}}]}).encode()
+
+    class FakeResp:
+        def read(self):
+            return body
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            pass
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=None: FakeResp())
+    result = vlm_judge(img, "test prompt", api_key="fake-key")
+    assert abs(result["prompt_adherence"] - 0.7) < 1e-6
+    assert abs(result["technical"] - 0.8) < 1e-6
+    assert abs(result["aesthetic"] - 0.6) < 1e-6
+
+
+def test_vlm_judge_parses_verbose_response(tmp_path, monkeypatch):
+    """VLM returns prose with numbers — regex extracts first number per part."""
+    import json
+    import urllib.request
+    from score import vlm_judge
+
+    img = tmp_path / "test.png"
+    img.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+
+    body = json.dumps({"choices": [{"message": {"content": "Prompt adherence: 9, Technical quality: 7, Aesthetic appeal: 8"}}]}).encode()
+
+    class FakeResp:
+        def read(self):
+            return body
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            pass
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=None: FakeResp())
+    result = vlm_judge(img, "test", api_key="fake-key")
+    assert abs(result["prompt_adherence"] - 0.9) < 1e-6
+    assert abs(result["technical"] - 0.7) < 1e-6
+    assert abs(result["aesthetic"] - 0.8) < 1e-6
+
+
+def test_vlm_judge_garbage_response_returns_zero(tmp_path, monkeypatch):
+    """VLM returns nonsense with <3 extractable numbers -> zeros."""
+    import json
+    import urllib.request
+    from score import vlm_judge
+
+    img = tmp_path / "test.png"
+    img.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+
+    body = json.dumps({"choices": [{"message": {"content": "I cannot rate this image."}}]}).encode()
+
+    class FakeResp:
+        def read(self):
+            return body
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            pass
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=None: FakeResp())
+    result = vlm_judge(img, "test", api_key="fake-key")
+    assert result["vlm_avg"] == 0.0
+
+
+def test_vlm_judge_clamps_above_10(tmp_path, monkeypatch):
+    """Scores > 10 should clamp to 1.0."""
+    import json
+    import urllib.request
+    from score import vlm_judge
+
+    img = tmp_path / "test.png"
+    img.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+
+    body = json.dumps({"choices": [{"message": {"content": "15,20,30"}}]}).encode()
+
+    class FakeResp:
+        def read(self):
+            return body
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            pass
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=None: FakeResp())
+    result = vlm_judge(img, "test", api_key="fake-key")
+    assert result["prompt_adherence"] == 1.0
+    assert result["technical"] == 1.0
+    assert result["aesthetic"] == 1.0
+
+
+def test_vlm_judge_network_error_returns_zero(tmp_path, monkeypatch):
+    """Network failure should return zeros."""
+    import urllib.error
+    import urllib.request
+    from score import vlm_judge
+
+    img = tmp_path / "test.png"
+    img.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+
+    monkeypatch.setattr(urllib.request, "urlopen",
+                        lambda req, timeout=None: (_ for _ in ()).throw(urllib.error.URLError("timeout")))
+    result = vlm_judge(img, "test", api_key="fake-key")
+    assert result["vlm_avg"] == 0.0
+
+
+def test_vlm_judge_batch_filters_zero_scores(tmp_path, monkeypatch):
+    """vlm_judge_batch should exclude zero-scored images from the mean."""
+    import json
+    import urllib.request
+    from score import vlm_judge_batch
+
+    img1 = tmp_path / "good.png"
+    img1.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+    img2 = tmp_path / "bad.png"
+    img2.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+
+    call_count = {"n": 0}
+
+    def fake_urlopen(req, timeout=None):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            data = json.dumps({"choices": [{"message": {"content": "8,9,7"}}]}).encode()
+        else:
+            data = json.dumps({"choices": [{"message": {"content": "nonsense"}}]}).encode()
+
+        class FakeResp:
+            def read(self):
+                return data
+            def __enter__(self):
+                return self
+            def __exit__(self, *a):
+                pass
+        return FakeResp()
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    result = vlm_judge_batch([(img1, "p1"), (img2, "p2")], api_key="fake-key")
+    assert abs(result["vlm_avg"] - 0.8) < 1e-6
+
+
 def test_vlm_judge_no_api_key():
     """Without API key, vlm_judge returns zeros."""
     import os
